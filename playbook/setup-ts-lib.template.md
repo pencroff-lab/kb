@@ -14,6 +14,10 @@ my-library/
 │   ├── core.ts               # Main library code
 │   ├── core.test.ts          # Tests (co-located)
 │   └── core.bench.ts         # Benchmarks (optional)
+├── scripts/
+│   ├── fix-cjs.ts            # Writes CJS package.json for Node compat
+│   ├── verify-build.ts       # Post-build artifact validation
+│   └── check-version.ts      # Pre-publish npm version duplicate check
 ├── dist/                     # Build output (git-ignored, npm-published)
 │   ├── esm/                  # ES modules build
 │   └── cjs/                  # CommonJS build
@@ -78,12 +82,16 @@ Tests, benchmarks, and specs live alongside source but are excluded from builds.
     "test": "bun test",
     "test:coverage": "bun test --coverage",
     "lint:edit": "bunx biome check --fix src/",
+    "lint:type": "tsc --noEmit",
+    "prelint:ci": "bun run lint:type",
     "lint:ci": "bunx biome ci src/",
-    "build": "bun run build:esm && bun run build:cjs",
+    "lint": "bun run lint:edit && bun run lint:type",
     "prebuild": "rm -rf dist",
+    "build": "bun run build:esm && bun run build:cjs",
     "build:esm": "tsc --project tsconfig.esm.json",
-    "build:cjs": "tsc --project tsconfig.cjs.json",
-    "prepublish_pkgOnly": "bun run build",
+    "build:cjs": "tsc --project tsconfig.cjs.json && bun scripts/fix-cjs.ts",
+    "postbuild": "bun scripts/verify-build.ts",
+    "prepublish_pkg": "bun scripts/check-version.ts && bun run build",
     "publish_pkg": "bun publish --access public"
   },
 
@@ -120,7 +128,12 @@ Tests, benchmarks, and specs live alongside source but are excluded from builds.
 | `"exports"` | Modern conditional exports — Node resolves `import`/`require` automatically |
 | `"sideEffects": false` | Tells bundlers all modules are safe to tree-shake when unused |
 | `"files": ["dist"]` | Only the `dist/` folder is published to npm (no src, tests, tmp) |
-| `"prepublish_pkgOnly"` | Runs `build` before `bun publish` to ensure dist is fresh |
+| `"lint:type"` | Runs `tsc --noEmit` to type-check without emitting files |
+| `"prelint:ci"` | Bun lifecycle hook — runs `lint:type` automatically before `lint:ci` |
+| `"lint"` | Combined local command: Biome auto-fix + TypeScript type check |
+| `"build:cjs"` | CJS compile + writes `dist/cjs/package.json` with `"type": "commonjs"` for Node compat |
+| `"postbuild"` | Validates required build artifacts exist; warns if LICENSE or README.md is missing |
+| `"prepublish_pkg"` | Checks npm registry for version duplicate, then runs full build |
 
 ### Dependency version policy
 
@@ -327,6 +340,8 @@ node_modules/
 # Environment
 .env
 .env.*
+**/.env
+**/.env.*
 !.env.example
 
 # Temporary
@@ -337,6 +352,7 @@ tmp/
 
 # OS
 .DS_Store
+**/.DS_Store
 ```
 
 Note: `dist/` is git-ignored but npm-published via `"files": ["dist"]`.
@@ -349,9 +365,11 @@ Note: `dist/` is git-ignored but npm-published via `"files": ["dist"]`.
 
 ### `biome.json`
 
+**Important:** Install Biome first (`bun add -d @biomejs/biome`), then set the `$schema` version to match the installed version. Run `bunx biome --version` to confirm.
+
 ```jsonc
 {
-  "$schema": "https://biomejs.dev/schemas/2.3.10/schema.json",
+  "$schema": "https://biomejs.dev/schemas/<installed-version>/schema.json",
   "vcs": {
     "enabled": true,
     "clientKind": "git",
@@ -359,7 +377,7 @@ Note: `dist/` is git-ignored but npm-published via `"files": ["dist"]`.
   },
   "files": {
     "ignoreUnknown": false,
-    "includes": ["src/**/*.ts"]    // only lint/format source files
+    "includes": ["src/**/*.ts", "scripts/**/*.ts"]  // lint source + build scripts
   },
   "formatter": {
     "enabled": true,
@@ -393,11 +411,15 @@ Note: `dist/` is git-ignored but npm-published via `"files": ["dist"]`.
 | Script | Command | When to use |
 |---|---|---|
 | `lint:edit` | `bunx biome check --fix src/` | Local development — applies safe auto-fixes (formatting, import sorting, lint fixes) |
+| `lint:type` | `tsc --noEmit` | Type-check all TypeScript files without emitting output |
+| `prelint:ci` | `bun run lint:type` | Bun lifecycle hook — runs automatically before `lint:ci` |
 | `lint:ci` | `bunx biome ci src/` | CI pipeline — fails on any issue, never writes files |
+| `lint` | `bun run lint:edit && bun run lint:type` | Combined local command — Biome auto-fix then type check |
 
-`lint:edit` is the everyday command: run it before committing to fix formatting and
-auto-fixable lint issues in one pass. `lint:ci` is the gatekeeper: add it to CI
-to enforce that all code passes without modification.
+`lint` is the everyday command: run it before committing to fix formatting,
+auto-fixable lint issues, and catch type errors in one pass. `lint:ci` is the
+gatekeeper: add it to CI to enforce that all code passes without modification.
+The `prelint:ci` hook ensures TypeScript type errors also fail the CI lint step.
 
 ---
 
@@ -523,20 +545,24 @@ Push to main → lint → test + coverage → publish to npm → tag git commit
 # 1. Bump version
 # Edit package.json version manually or use `npm version patch|minor|major`
 
-# 2. Build
+# 2. Check version is not already published
+bun scripts/check-version.ts
+
+# 3. Build (includes CJS fix and post-build verification)
 bun run build
 
-# 3. Verify dist contents
+# 4. Verify dist contents
 ls dist/esm/ dist/cjs/
 
-# 4. Dry run
+# 5. Dry run
 bun publish --access public --dry-run
 
-# 5. Publish
+# 6. Publish
 bun run publish_pkg
 ```
 
-The CI pipeline automates steps 2-5 on every push to `main`.
+The CI pipeline automates steps 2-6 on every push to `main`.
+`prepublish_pkg` runs the version check and build automatically before `publish_pkg`.
 
 ---
 
@@ -555,9 +581,141 @@ Consumers get the right format automatically:
 - `const { hash } = require('@scope/lib')` → `dist/cjs/index.js`
 - TypeScript → `dist/esm/index.d.ts` (via `"types"` field)
 
+### CJS compatibility fix
+
+The root `package.json` declares `"type": "module"`, which makes Node.js treat
+all `.js` files as ESM. This breaks `require()` for files in `dist/cjs/` even
+though they contain valid CommonJS syntax.
+
+The fix: `scripts/fix-cjs.ts` writes a `dist/cjs/package.json` with
+`{"type": "commonjs"}` after the CJS build. Node's module resolution checks the
+nearest `package.json` when determining module type, so this override takes
+effect for everything in `dist/cjs/`.
+
+This runs automatically as part of `build:cjs` and is verified by `postbuild`.
+
 ---
 
-## 12. Checklist for New Library
+## 12. Build Scripts (`scripts/`)
+
+All scripts use `import.meta.dir` (bun API) to resolve paths relative to the
+script file, so they work regardless of the working directory.
+
+### `scripts/fix-cjs.sh.ts` — CJS compatibility
+
+Writes `dist/cjs/package.json` with `{"type": "commonjs"}` after the CJS build.
+Runs automatically as part of `build:cjs`.
+
+```typescript
+import { existsSync, writeFileSync } from "node:fs";
+import { resolve } from "node:path";
+
+const cjsDir = resolve(import.meta.dir, "..", "dist", "cjs");
+
+if (!existsSync(cjsDir)) {
+  console.error("dist/cjs/ does not exist. Run build:cjs first.");
+  process.exit(1);
+}
+
+const pkgPath = resolve(cjsDir, "package.json");
+writeFileSync(pkgPath, `${JSON.stringify({ type: "commonjs" }, null, "\t")}\n`);
+console.log("Wrote dist/cjs/package.json with type: commonjs");
+```
+
+### `scripts/verify-build.sh.ts` — Post-build validation
+
+Checks that required dist artifacts exist (error if missing) and warns about
+optional files (LICENSE, README.md). Runs automatically as `postbuild`.
+
+```typescript
+import { existsSync } from "node:fs";
+import { resolve } from "node:path";
+
+const root = resolve(import.meta.dir, "..");
+
+const required: string[] = [
+  "dist/esm/index.js",
+  "dist/esm/index.d.ts",
+  "dist/cjs/index.js",
+  "dist/cjs/package.json",
+];
+
+const optional: Array<{ path: string; label: string }> = [
+  { path: "LICENSE", label: "LICENSE" },
+  { path: "README.md", label: "README.md" },
+];
+
+let hasErrors = false;
+
+for (const file of required) {
+  const fullPath = resolve(root, file);
+  if (!existsSync(fullPath)) {
+    console.error(`MISSING (required): ${file}`);
+    hasErrors = true;
+  }
+}
+
+for (const { path, label } of optional) {
+  const fullPath = resolve(root, path);
+  if (!existsSync(fullPath)) {
+    console.warn(`WARNING: ${label} is missing — recommended for npm packages`);
+  }
+}
+
+if (hasErrors) {
+  console.error("Build verification failed.");
+  process.exit(1);
+}
+
+console.log("Build verification passed.");
+```
+
+### `scripts/check-version.sh.ts` — Pre-publish version check
+
+Queries the npm registry to verify the current version is not already published.
+Runs automatically as part of `prepublish_pkg` before `publish_pkg`.
+
+- **200** (version exists) → exit 1 with "bump version" message
+- **404** (available) → exit 0
+- **Network error** → warning only (publish will fail with its own error)
+
+```typescript
+import { readFileSync } from "node:fs";
+import { resolve } from "node:path";
+
+const pkgPath = resolve(import.meta.dir, "..", "package.json");
+const pkg = JSON.parse(readFileSync(pkgPath, "utf-8")) as {
+  name: string;
+  version: string;
+};
+const { name, version } = pkg;
+
+const url = `https://registry.npmjs.org/${name}/${version}`;
+
+try {
+  const res = await fetch(url);
+
+  if (res.ok) {
+    console.error(`Version ${version} of ${name} already exists on npm.`);
+    console.error("Bump the version in package.json before publishing.");
+    process.exit(1);
+  }
+
+  if (res.status === 404) {
+    console.log(`Version ${version} of ${name} is available for publishing.`);
+    process.exit(0);
+  }
+
+  console.warn(`Unexpected response from npm registry: HTTP ${res.status}`);
+} catch (err) {
+  const message = err instanceof Error ? err.message : String(err);
+  console.warn(`Could not reach npm registry: ${message}`);
+}
+```
+
+---
+
+## 13. Checklist for New Library
 
 - [ ] Copy project structure (index.ts, src/, 4 tsconfigs, biome.json, bunfig.toml)
 - [ ] Update package.json: name, description, author, keywords, repository, `"sideEffects": false`
@@ -568,14 +726,18 @@ Consumers get the right format automatically:
 - [ ] Create npm automation token, add as `NPM_TOKEN` secret
 - [ ] Create GitHub PAT for tagging, add as `REPO_TAG_TOKEN` secret
 - [ ] Copy `.github/workflows/ci.yml`, update package name in verify step
+- [ ] Create LICENSE file (e.g. Apache-2.0, MIT) — **must exist before publish**
+- [ ] Create README.md with package description and usage examples
 - [ ] Write library code in `src/`, tests in `src/*.test.ts`
 - [ ] Run `bun test`, `bun run test:coverage`, `bun run lint:ci`, and `bun run build` locally
+- [ ] Verify `bun run build` shows no errors and no missing-file warnings
+- [ ] Run `bun scripts/check-version.ts` — verify version is available on npm
 - [ ] Push to `main` — CI handles publish + tagging
 - [ ] Verify on npmjs.com: `https://www.npmjs.com/package/@scope/name`
 
 ---
 
-## 13. Claude Code Rules — Testing Guide
+## 14. Claude Code Rules — Testing Guide
 
 The testing guide lives at `.claude/rules/testing.md` and is sourced from the shared knowledge base. To copy or update it, run:
 

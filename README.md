@@ -15,12 +15,12 @@ kb/
 Playbooks are executable guides. Reference them in agent prompts:
 
 ```
-Execute @pencroff-lab/kb/playbook/ts-npm-publish-template.md
+Execute @pencroff-lab/kb/playbook/setup-ts-lib.template.md
 ```
 
 | Playbook | Description |
 |----------|-------------|
-| [ts-npm-publish-template](playbook/ts-npm-publish-template.md) | TypeScript library setup and npm publish workflow (dual ESM/CJS, CI/CD) |
+| [setup-ts-lib.template](playbook/setup-ts-lib.template.md) | TypeScript library setup and npm publish workflow (dual ESM/CJS, CI/CD) |
 
 ### Rules
 
