@@ -22,6 +22,8 @@ my-library/
 ├── tsconfig.build.json       # Shared build settings
 ├── tsconfig.esm.json         # ESM-specific build
 ├── tsconfig.cjs.json         # CJS-specific build
+├── biome.json                # Biome linter / formatter config
+├── bunfig.toml               # Bun runtime config (test coverage, etc.)
 ├── package.json
 ├── .npmrc
 ├── .gitignore
@@ -37,11 +39,11 @@ Tests, benchmarks, and specs live alongside source but are excluded from builds.
 
 ```jsonc
 {
-  "name": "@scope/my-library",
+  "name": "<@scope/package-name>",            // ← your scoped package name
   "version": "0.1.0",
-  "description": "...",
+  "description": "<package description>",     // ← short library description
   "license": "Apache-2.0",
-  "author": "YourName",
+  "author": "<Author Name>",                  // ← your name or org
   "repository": {
     "type": "git",
     "url": "https://github.com/org/my-library"
@@ -74,6 +76,9 @@ Tests, benchmarks, and specs live alongside source but are excluded from builds.
   // ── Scripts ──
   "scripts": {
     "test": "bun test",
+    "test:coverage": "bun test --coverage",
+    "lint:edit": "bunx biome check --fix src/",
+    "lint:ci": "bunx biome ci src/",
     "build": "bun run build:esm && bun run build:cjs",
     "prebuild": "rm -rf dist",
     "build:esm": "tsc --project tsconfig.esm.json",
@@ -84,13 +89,25 @@ Tests, benchmarks, and specs live alongside source but are excluded from builds.
 
   // ── Dependencies ──
   "devDependencies": {
-    "@types/bun": "..."
+    "@biomejs/biome": "2.4.2",              // exact version
+    "@types/bun": "1.3.9",                  // match your bun version (bun --version)
+    "@types/sinon": "21.0.0",               // exact version
+    "mitata": "1.0.34",                     // exact version — benchmarking
+    "sinon": "21.0.1"                       // exact version — test stubs/spies
   },
   "peerDependencies": {
-    "typescript": "5.x"
+    "typescript": "5.9.3"
   }
 }
 ```
+
+### User-provided values
+
+| Placeholder | What to fill in |
+|---|---|
+| `<@scope/package-name>` | Your npm scope and package name (e.g. `@pencroff-lab/kore`) |
+| `<package description>` | Short description shown on npmjs.com |
+| `<Author Name>` | Your name or organisation |
 
 ### Field-by-field notes
 
@@ -104,6 +121,21 @@ Tests, benchmarks, and specs live alongside source but are excluded from builds.
 | `"sideEffects": false` | Tells bundlers all modules are safe to tree-shake when unused |
 | `"files": ["dist"]` | Only the `dist/` folder is published to npm (no src, tests, tmp) |
 | `"prepublish_pkgOnly"` | Runs `build` before `bun publish` to ensure dist is fresh |
+
+### Dependency version policy
+
+- **`@types/bun`** — should match the bun version used in the project. Run `bun --version` and pick the corresponding `@types/bun` release to keep type definitions in sync.
+- **All other devDependencies** — use exact versions (no `^` or `~`). This ensures deterministic installs and avoids surprise breakage from patch releases.
+
+### Dev dependency roles
+
+| Package | Purpose |
+|---|---|
+| `@biomejs/biome` | Linter and formatter (replaces ESLint + Prettier) |
+| `@types/bun` | TypeScript definitions for the Bun runtime |
+| `@types/sinon` | TypeScript definitions for Sinon |
+| `mitata` | Micro-benchmarking library for `*.bench.ts` files |
+| `sinon` | Test stubs, spies, and mocks |
 
 ---
 
@@ -311,7 +343,92 @@ Note: `dist/` is git-ignored but npm-published via `"files": ["dist"]`.
 
 ---
 
-## 7. CI/CD — GitHub Actions (Bun)
+## 7. Biome — Linter & Formatter
+
+[Biome](https://biomejs.dev/) replaces ESLint + Prettier with a single, fast tool.
+
+### `biome.json`
+
+```jsonc
+{
+  "$schema": "https://biomejs.dev/schemas/2.3.10/schema.json",
+  "vcs": {
+    "enabled": true,
+    "clientKind": "git",
+    "useIgnoreFile": true          // respects .gitignore
+  },
+  "files": {
+    "ignoreUnknown": false,
+    "includes": ["src/**/*.ts"]    // only lint/format source files
+  },
+  "formatter": {
+    "enabled": true,
+    "indentStyle": "tab",
+    "lineWidth": 80
+  },
+  "linter": {
+    "enabled": true,
+    "rules": {
+      "recommended": true
+    }
+  },
+  "javascript": {
+    "formatter": {
+      "quoteStyle": "double"
+    }
+  },
+  "assist": {
+    "enabled": true,
+    "actions": {
+      "source": {
+        "organizeImports": "on"
+      }
+    }
+  }
+}
+```
+
+### Scripts
+
+| Script | Command | When to use |
+|---|---|---|
+| `lint:edit` | `bunx biome check --fix src/` | Local development — applies safe auto-fixes (formatting, import sorting, lint fixes) |
+| `lint:ci` | `bunx biome ci src/` | CI pipeline — fails on any issue, never writes files |
+
+`lint:edit` is the everyday command: run it before committing to fix formatting and
+auto-fixable lint issues in one pass. `lint:ci` is the gatekeeper: add it to CI
+to enforce that all code passes without modification.
+
+---
+
+## 8. Test Coverage — `bunfig.toml`
+
+### `bunfig.toml`
+
+```toml
+[test]
+root = "src"
+coverageThreshold = 0.83
+```
+
+| Key | Purpose |
+|---|---|
+| `root` | Tells `bun test` to discover tests starting from `src/` |
+| `coverageThreshold` | Minimum coverage ratio (0.0–1.0). `bun test --coverage` fails if below this |
+
+### Script
+
+```jsonc
+"test:coverage": "bun test --coverage"
+```
+
+Run `bun run test:coverage` to execute tests with coverage reporting. The
+`coverageThreshold` in `bunfig.toml` makes the command fail if coverage drops
+below 83%, useful as a CI gate.
+
+---
+
+## 9. CI/CD — GitHub Actions (Bun)
 
 ### `.github/workflows/ci.yml`
 
@@ -336,8 +453,11 @@ jobs:
       - name: Install dependencies
         run: bun install --frozen-lockfile
 
+      - name: Lint
+        run: bun run lint:ci
+
       - name: Run tests
-        run: bun test
+        run: bun run test:coverage
 
       - name: Publish to npm
         if: github.event_name == 'push' && github.ref == 'refs/heads/main'
@@ -383,9 +503,9 @@ jobs:
 ### Pipeline flow
 
 ```
-PR opened → test
-             ↓
-Push to main → test → publish to npm → tag git commit
+PR opened → lint → test + coverage
+                         ↓
+Push to main → lint → test + coverage → publish to npm → tag git commit
 ```
 
 ### Required GitHub secrets
@@ -397,7 +517,7 @@ Push to main → test → publish to npm → tag git commit
 
 ---
 
-## 8. Publish Workflow (Manual)
+## 10. Publish Workflow (Manual)
 
 ```bash
 # 1. Bump version
@@ -420,7 +540,7 @@ The CI pipeline automates steps 2-5 on every push to `main`.
 
 ---
 
-## 9. Dual ESM/CJS Build — How It Works
+## 11. Dual ESM/CJS Build — How It Works
 
 ```
 index.ts ─┬─ tsc (tsconfig.esm.json) ──→ dist/esm/*.js   (ES modules)
@@ -437,18 +557,56 @@ Consumers get the right format automatically:
 
 ---
 
-## 10. Checklist for New Library
+## 12. Checklist for New Library
 
-- [ ] Copy project structure (index.ts, src/, 4 tsconfigs)
-- [ ] Update package.json: name, description, keywords, repository, `"sideEffects": false`
+- [ ] Copy project structure (index.ts, src/, 4 tsconfigs, biome.json, bunfig.toml)
+- [ ] Update package.json: name, description, author, keywords, repository, `"sideEffects": false`
+- [ ] Install devDependencies — verify `@types/bun` matches your `bun --version`
+- [ ] Set up `biome.json` — run `bun run lint:edit` to verify
+- [ ] Set up `bunfig.toml` with test root and coverage threshold
 - [ ] Set up `.npmrc` with your scope
 - [ ] Create npm automation token, add as `NPM_TOKEN` secret
 - [ ] Create GitHub PAT for tagging, add as `REPO_TAG_TOKEN` secret
 - [ ] Copy `.github/workflows/ci.yml`, update package name in verify step
 - [ ] Write library code in `src/`, tests in `src/*.test.ts`
-- [ ] Run `bun test` and `bun run build` locally
+- [ ] Run `bun test`, `bun run test:coverage`, `bun run lint:ci`, and `bun run build` locally
 - [ ] Push to `main` — CI handles publish + tagging
 - [ ] Verify on npmjs.com: `https://www.npmjs.com/package/@scope/name`
+
+---
+
+## 13. Claude Code Rules — Testing Guide
+
+The testing guide lives at `.claude/rules/testing.md` and is sourced from the shared knowledge base. To copy or update it, run:
+
+```bash
+bun -e "
+const res = await fetch('https://raw.githubusercontent.com/pencroff-lab/kb/refs/heads/main/rules/testing.md');
+if (!res.ok) throw new Error('Fetch failed: ' + res.status);
+const text = await res.text();
+const fs = await import('node:fs');
+fs.mkdirSync('.claude/rules', { recursive: true });
+fs.writeFileSync('.claude/rules/testing.md', text);
+console.log('Written .claude/rules/testing.md (' + text.length + ' bytes)');
+"
+```
+
+Or with Node.js:
+
+```bash
+node -e "
+fetch('https://raw.githubusercontent.com/pencroff-lab/kb/refs/heads/main/rules/testing.md')
+  .then(r => { if (!r.ok) throw new Error('Fetch failed: ' + r.status); return r.text(); })
+  .then(text => {
+    const fs = require('node:fs');
+    fs.mkdirSync('.claude/rules', { recursive: true });
+    fs.writeFileSync('.claude/rules/testing.md', text);
+    console.log('Written .claude/rules/testing.md (' + text.length + ' bytes)');
+  });
+"
+```
+
+This is a one-time setup step — the file is committed to the repo and does not auto-update.
 
 ---
 
