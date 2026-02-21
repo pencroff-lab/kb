@@ -728,7 +728,8 @@ try {
 - [ ] Create GitHub PAT for tagging, add as `REPO_TAG_TOKEN` secret
 - [ ] Copy `.github/workflows/ci.yml`, update package name in verify step
 - [ ] Create `scripts/fetch-to-folder.ts` (see [section 14](#14-fetch-to-folder-helper-script))
-- [ ] Copy Claude Code rules (see [section 15](#15-claude-code-rules--testing-guide) and [section 16](#16-claude-code-rules--logging-guide))
+- [ ] Copy testing rules (see [section 15](#15-claude-code-rules--testing-guide))
+- [ ] _(Optional)_ If logging is needed — install `@pencroff-lab/kore` and copy logging rules (see [section 16](#16-claude-code-rules--logging-guide-optional))
 - [ ] Create LICENSE file (e.g. Apache-2.0, MIT) — **must exist before publish**
 - [ ] Create README.md with package description and usage examples
 - [ ] Write library code in `src/`, tests in `src/*.test.ts`
@@ -788,9 +789,17 @@ bun scripts/fetch-to-folder.ts testing.rule.md \
 
 ---
 
-## 16. Claude Code Rules — Logging Guide
+## 16. Claude Code Rules — Logging Guide (Optional)
 
-The logging rules live at `.claude/rules/logging.rule.md` and `.claude/rules/logging-test.rule.md`, sourced from the shared knowledge base. To copy or update them, run:
+> **Ask the user:** "Does this library need structured logging? This adds `@pencroff-lab/kore` as a dependency."
+>
+> If **no** — skip this section entirely.
+
+If **yes** — install the dependency and copy the logging rules:
+
+```bash
+bun add -E @pencroff-lab/kore
+```
 
 ```bash
 bun scripts/fetch-to-folder.ts logging.rule.md \
