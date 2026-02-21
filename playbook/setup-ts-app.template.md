@@ -66,6 +66,9 @@ Tests and benchmarks live alongside source but are excluded from the bundle.
   },
 
   // ── Dependencies ──
+  "dependencies": {
+    "@pencroff-lab/kore": "0.1.0"              // exact version
+  },
   "devDependencies": {
     "@biomejs/biome": "2.4.2",                 // exact version
     "@types/bun": "1.3.9",                     // match your bun version (bun --version)
@@ -410,15 +413,34 @@ console.log("Build verification passed.");
 
 ---
 
-## 10. Checklist for New Application
+## 10. Install Dependencies
+
+Install the runtime dependency:
+
+```bash
+bun add -E @pencroff-lab/kore
+```
+
+Install all dev dependencies in one command:
+
+```bash
+bun add -E -d @biomejs/biome @types/bun @types/sinon mitata sinon typescript
+```
+
+Verify `@types/bun` matches your Bun version (`bun --version`) and update if needed.
+
+---
+
+## 11. Checklist for New Application
 
 - [ ] Copy project structure (src/main.ts, tsconfig.json, biome.json, bunfig.toml)
 - [ ] Update package.json: name, description, author, keywords, repository
 - [ ] Ensure `"private": true` is set in package.json
-- [ ] Install devDependencies — verify `@types/bun` matches your `bun --version`
+- [ ] Install dependencies (see [section 10](#10-install-dependencies))
 - [ ] Set up `biome.json` — run `bun run lint:edit` to verify
 - [ ] Set up `bunfig.toml` with test root and coverage threshold
 - [ ] Copy `.github/workflows/ci.yml`
+- [ ] Copy Claude Code rules (see [section 12](#12-claude-code-rules--testing-guide) and [section 13](#13-claude-code-rules--logging-guide))
 - [ ] Create LICENSE file (e.g. Apache-2.0, MIT)
 - [ ] Create README.md with application description
 - [ ] Write application code in `src/`, tests in `src/*.test.ts`
@@ -429,7 +451,7 @@ console.log("Build verification passed.");
 
 ---
 
-## 11. Claude Code Rules — Testing Guide
+## 12. Claude Code Rules — Testing Guide
 
 The testing guide lives at `.claude/rules/testing.rule.md` and is sourced from the shared knowledge base. To copy or update it, run:
 
@@ -461,6 +483,60 @@ fetch('https://raw.githubusercontent.com/pencroff-lab/kb/refs/heads/main/rules/t
 ```
 
 This is a one-time setup step — the file is committed to the repo and does not auto-update.
+
+---
+
+## 13. Claude Code Rules — Logging Guide
+
+The logging rules live at `.claude/rules/logging.rule.md` and `.claude/rules/logging-test.rule.md`, sourced from the shared knowledge base.
+
+### Copy logging rule (production code)
+
+```bash
+bun -e "
+const res = await fetch('https://raw.githubusercontent.com/pencroff-lab/kb/refs/heads/main/rules/logging.rule.md');
+if (!res.ok) throw new Error('Fetch failed: ' + res.status);
+const text = await res.text();
+const fs = await import('node:fs');
+fs.mkdirSync('.claude/rules', { recursive: true });
+fs.writeFileSync('.claude/rules/logging.rule.md', text);
+console.log('Written .claude/rules/logging.rule.md (' + text.length + ' bytes)');
+"
+```
+
+### Copy logging-test rule (test code)
+
+```bash
+bun -e "
+const res = await fetch('https://raw.githubusercontent.com/pencroff-lab/kb/refs/heads/main/rules/logging-test.rule.md');
+if (!res.ok) throw new Error('Fetch failed: ' + res.status);
+const text = await res.text();
+const fs = await import('node:fs');
+fs.mkdirSync('.claude/rules', { recursive: true });
+fs.writeFileSync('.claude/rules/logging-test.rule.md', text);
+console.log('Written .claude/rules/logging-test.rule.md (' + text.length + ' bytes)');
+"
+```
+
+Or with Node.js:
+
+```bash
+node -e "
+const rules = ['logging.rule.md', 'logging-test.rule.md'];
+const fs = require('node:fs');
+fs.mkdirSync('.claude/rules', { recursive: true });
+for (const rule of rules) {
+  fetch('https://raw.githubusercontent.com/pencroff-lab/kb/refs/heads/main/rules/' + rule)
+    .then(r => { if (!r.ok) throw new Error('Fetch failed: ' + r.status); return r.text(); })
+    .then(text => {
+      fs.writeFileSync('.claude/rules/' + rule, text);
+      console.log('Written .claude/rules/' + rule + ' (' + text.length + ' bytes)');
+    });
+}
+"
+```
+
+This is a one-time setup step — the files are committed to the repo and do not auto-update.
 
 ---
 

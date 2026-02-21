@@ -21,6 +21,7 @@ Execute @pencroff-lab/kb/playbook/setup-ts-lib.template.md
 | Playbook | Description |
 |----------|-------------|
 | [setup-ts-lib.template](playbook/setup-ts-lib.template.md) | TypeScript library setup and npm publish workflow (dual ESM/CJS, CI/CD) |
+| [setup-ts-app.template](playbook/setup-ts-app.template.md) | TypeScript bundled application setup with Bun (single bundle, CI/CD) |
 
 ### Rules
 
@@ -29,6 +30,8 @@ Rules are conventions applied during development. They can be used as agent rule
 | Rule | Description |
 |------|-------------|
 | [testing](rules/testing.rule.md) | Testing patterns, mocking conventions, and strategies (bun test + Sinon) |
+| [logging](rules/logging.rule.md) | Logging patterns, call signatures, error logging strategy, and naming conventions |
+| [logging-test](rules/logging-test.rule.md) | Logger mocking and assertion patterns for tests |
 
 ## Usage
 
