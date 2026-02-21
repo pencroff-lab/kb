@@ -431,17 +431,17 @@ console.log("Build verification passed.");
 
 ## 11. Claude Code Rules — Testing Guide
 
-The testing guide lives at `.claude/rules/testing.md` and is sourced from the shared knowledge base. To copy or update it, run:
+The testing guide lives at `.claude/rules/testing.rule.md` and is sourced from the shared knowledge base. To copy or update it, run:
 
 ```bash
 bun -e "
-const res = await fetch('https://raw.githubusercontent.com/pencroff-lab/kb/refs/heads/main/rules/testing.md');
+const res = await fetch('https://raw.githubusercontent.com/pencroff-lab/kb/refs/heads/main/rules/testing.rule.md');
 if (!res.ok) throw new Error('Fetch failed: ' + res.status);
 const text = await res.text();
 const fs = await import('node:fs');
 fs.mkdirSync('.claude/rules', { recursive: true });
-fs.writeFileSync('.claude/rules/testing.md', text);
-console.log('Written .claude/rules/testing.md (' + text.length + ' bytes)');
+fs.writeFileSync('.claude/rules/testing.rule.md', text);
+console.log('Written .claude/rules/testing.rule.md (' + text.length + ' bytes)');
 "
 ```
 
@@ -449,13 +449,13 @@ Or with Node.js:
 
 ```bash
 node -e "
-fetch('https://raw.githubusercontent.com/pencroff-lab/kb/refs/heads/main/rules/testing.md')
+fetch('https://raw.githubusercontent.com/pencroff-lab/kb/refs/heads/main/rules/testing.rule.md')
   .then(r => { if (!r.ok) throw new Error('Fetch failed: ' + r.status); return r.text(); })
   .then(text => {
     const fs = require('node:fs');
     fs.mkdirSync('.claude/rules', { recursive: true });
-    fs.writeFileSync('.claude/rules/testing.md', text);
-    console.log('Written .claude/rules/testing.md (' + text.length + ' bytes)');
+    fs.writeFileSync('.claude/rules/testing.rule.md', text);
+    console.log('Written .claude/rules/testing.rule.md (' + text.length + ' bytes)');
   });
 "
 ```

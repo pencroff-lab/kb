@@ -28,7 +28,7 @@ Rules are conventions applied during development. They can be used as agent rule
 
 | Rule | Description |
 |------|-------------|
-| [testing](rules/testing.md) | Testing patterns, mocking conventions, and strategies (bun test + Sinon) |
+| [testing](rules/testing.rule.md) | Testing patterns, mocking conventions, and strategies (bun test + Sinon) |
 
 ## Usage
 
