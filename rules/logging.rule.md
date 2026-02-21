@@ -1,12 +1,10 @@
 ---
 description: Logging patterns, call signatures, error logging strategy, and naming conventions
-globs: "**/logger*.ts, **/log_*.ts"
+globs: "src/**/*.ts, !src/**/*.test.ts, !src/**/*.spec.ts"
 alwaysApply: false
 ---
 
 # Logging Guide
-
-This guide covers logging patterns, conventions, and integration for the project.
 
 ## Overview
 
@@ -21,27 +19,15 @@ This guide covers logging patterns, conventions, and integration for the project
 
 ## Call Signatures
 
-The logger supports overloaded call signatures. Levels are bound as readonly properties on every `Logger` instance:
+Levels are bound as readonly properties on every `Logger` instance:
 
 ```typescript
-// 1 arg: message at INFO level
-log('Application started');
-
-// 2 args: level + message
-log(log.WARN, 'Connection slow');
-
-// 2 args: message + context object
-log('User created', { userId: '123' });
-
-// 2 args: message + detail string (stored as { detail: "..." })
-log('Config loaded', '/path/to/config.json');
-
-// 2 args: message + Err (stored as { err: <Err> })
-log('Fetch failed', err);
-
-// 3 args: level + message + context/Err
-log(log.ERROR, 'Command failed', err);
-log(log.INFO, 'Processing', { index: 1 });
+log('Application started');                    // 1 arg: INFO level
+log(log.WARN, 'Connection slow');              // 2 args: level + message
+log('User created', { userId: '123' });        // 2 args: message + context
+log('Config loaded', '/path/to/config.json');   // 2 args: message + detail string
+log('Fetch failed', err);                       // 2 args: message + Err
+log(log.ERROR, 'Command failed', err);          // 3 args: level + message + context/Err
 ```
 
 Child loggers inherit the same signatures:
@@ -64,18 +50,9 @@ svcLog(svcLog.DEBUG, 'Calling CLI');
 
 Level hierarchy: TRACE < DEBUG < INFO < WARN < ERROR < FATAL. Messages below the configured level are silently dropped.
 
-## Environment Configuration
-
-```bash
-# Log level (default: info, case-insensitive)
-LOG_LEVEL=debug
-```
-
-Invalid values fall back to `info`.
-
 ## Logger DI Pattern
 
-Logger is passed through deps. Only call `createLogger` at the entry point; everywhere else receive `Logger` type via deps:
+Only call `createLogger` at the entry point; everywhere else receive `Logger` type via deps:
 
 ```typescript
 import type { Logger } from "@pencroff-lab/kore";
@@ -94,7 +71,6 @@ function createHandler(deps: ServiceDeps) {
     const runLog = log.child('handler', { runId });
 
     runLog(runLog.INFO, 'Starting', { plan: argv.plan });
-    // ...
   };
 }
 ```
@@ -237,63 +213,6 @@ When an `Err` instance is passed as context, the pretty transport:
   err: connection refused [DB_ERROR]
 ```
 
-## Testing with Logger
-
-Use a spy transport to capture `LogEntry` objects for assertion:
-
-```typescript
-import sinon from "sinon";
-import type { LogEntry, LogTransport } from "@pencroff-lab/kore";
-import { createLogger } from "@pencroff-lab/kore";
-
-function createSpyLogger(module?: string) {
-  const entries: LogEntry[] = [];
-  const spyTransport: LogTransport = { write(e) { entries.push(e); } };
-  const logger = createLogger(module, {
-    transports: [spyTransport],
-    level: "trace",
-  });
-  return { logger, entries };
-}
-
-// Usage
-const { logger, entries } = createSpyLogger('test');
-logger(logger.INFO, 'Starting');
-
-expect(entries).toHaveLength(1);
-expect(entries[0]?.level).toBe("info");
-expect(entries[0]?.message).toBe("Starting");
-```
-
-For DI in tests, create a stub logger that satisfies the `Logger` type:
-
-```typescript
-import sinon from "sinon";
-import type { Logger } from "@pencroff-lab/kore";
-
-function createMockLog(): Logger {
-  const log = sinon.stub() as unknown as Logger;
-  Object.assign(log, {
-    TRACE: "trace", DEBUG: "debug", INFO: "info",
-    WARN: "warn", ERROR: "error", FATAL: "fatal",
-    child: sinon.stub().returns(log),
-  });
-  return log;
-}
-
-const mockLog = createMockLog();
-const deps = { log: mockLog, db: mockDb, config: testConfig };
-
-const handler = createHandler(deps);
-await handler({ plan: "./test.md" });
-
-sinon.assert.calledWith(
-  mockLog as unknown as sinon.SinonStub,
-  mockLog.INFO,
-  sinon.match("Starting")
-);
-```
-
 ## Execution Context
 
 ```typescript
@@ -318,7 +237,6 @@ Logger is a function type — use short names: `log`, `ctx.log`, `svcLog`, `runL
 | Service child | `svcLog` | `const svcLog = log.child('claude')` |
 | Dry-run child | `dryRunLog` | `const dryRunLog = runLog.child('DRY-RUN')` |
 | Execution context | `ctx.log` | `ctx.log(ctx.log.INFO, 'Processing')` |
-| Test mock | `mockLog` | `const mockLog = createMockLog()` |
 
 ## Summary
 
