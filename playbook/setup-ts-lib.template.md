@@ -17,7 +17,8 @@ my-library/
 ├── scripts/
 │   ├── fix-cjs.ts            # Writes CJS package.json for Node compat
 │   ├── verify-build.ts       # Post-build artifact validation
-│   └── check-version.ts      # Pre-publish npm version duplicate check
+│   ├── check-version.ts      # Pre-publish npm version duplicate check
+│   └── fetch-to-folder.ts    # Fetch remote file to a local folder
 ├── dist/                     # Build output (git-ignored, npm-published)
 │   ├── esm/                  # ES modules build
 │   └── cjs/                  # CommonJS build
@@ -726,6 +727,8 @@ try {
 - [ ] Create npm automation token, add as `NPM_TOKEN` secret
 - [ ] Create GitHub PAT for tagging, add as `REPO_TAG_TOKEN` secret
 - [ ] Copy `.github/workflows/ci.yml`, update package name in verify step
+- [ ] Create `scripts/fetch-to-folder.ts` (see [section 14](#14-fetch-to-folder-helper-script))
+- [ ] Copy Claude Code rules (see [section 15](#15-claude-code-rules--testing-guide) and [section 16](#16-claude-code-rules--logging-guide))
 - [ ] Create LICENSE file (e.g. Apache-2.0, MIT) — **must exist before publish**
 - [ ] Create README.md with package description and usage examples
 - [ ] Write library code in `src/`, tests in `src/*.test.ts`
@@ -737,38 +740,69 @@ try {
 
 ---
 
-## 14. Claude Code Rules — Testing Guide
+## 14. Fetch-to-Folder Helper Script
+
+Create `scripts/fetch-to-folder.ts` — a reusable helper that downloads a remote file into a local folder.
+
+### `scripts/fetch-to-folder.ts`
+
+```typescript
+import { mkdirSync, writeFileSync } from "node:fs";
+import { resolve } from "node:path";
+
+const [filename, sourceUrl, targetFolder] = process.argv.slice(2);
+
+if (!filename || !sourceUrl || !targetFolder) {
+  console.error(
+    "Usage: bun scripts/fetch-to-folder.ts <filename> <source_url> <target_folder>",
+  );
+  process.exit(1);
+}
+
+const res = await fetch(sourceUrl);
+if (!res.ok) {
+  console.error(`Fetch failed: ${res.status} ${res.statusText}`);
+  process.exit(1);
+}
+
+const text = await res.text();
+mkdirSync(targetFolder, { recursive: true });
+const dest = resolve(targetFolder, filename);
+writeFileSync(dest, text);
+console.log(`Written ${dest} (${text.length} bytes)`);
+```
+
+Review the script, then use it in the steps below.
+
+---
+
+## 15. Claude Code Rules — Testing Guide
 
 The testing guide lives at `.claude/rules/testing.rule.md` and is sourced from the shared knowledge base. To copy or update it, run:
 
 ```bash
-bun -e "
-const res = await fetch('https://raw.githubusercontent.com/pencroff-lab/kb/refs/heads/main/rules/testing.rule.md');
-if (!res.ok) throw new Error('Fetch failed: ' + res.status);
-const text = await res.text();
-const fs = await import('node:fs');
-fs.mkdirSync('.claude/rules', { recursive: true });
-fs.writeFileSync('.claude/rules/testing.rule.md', text);
-console.log('Written .claude/rules/testing.rule.md (' + text.length + ' bytes)');
-"
+bun scripts/fetch-to-folder.ts testing.rule.md \
+  https://raw.githubusercontent.com/pencroff-lab/kb/refs/heads/main/rules/testing.rule.md \
+  .claude/rules
 ```
 
-Or with Node.js:
+---
+
+## 16. Claude Code Rules — Logging Guide
+
+The logging rules live at `.claude/rules/logging.rule.md` and `.claude/rules/logging-test.rule.md`, sourced from the shared knowledge base. To copy or update them, run:
 
 ```bash
-node -e "
-fetch('https://raw.githubusercontent.com/pencroff-lab/kb/refs/heads/main/rules/testing.rule.md')
-  .then(r => { if (!r.ok) throw new Error('Fetch failed: ' + r.status); return r.text(); })
-  .then(text => {
-    const fs = require('node:fs');
-    fs.mkdirSync('.claude/rules', { recursive: true });
-    fs.writeFileSync('.claude/rules/testing.rule.md', text);
-    console.log('Written .claude/rules/testing.rule.md (' + text.length + ' bytes)');
-  });
-"
+bun scripts/fetch-to-folder.ts logging.rule.md \
+  https://raw.githubusercontent.com/pencroff-lab/kb/refs/heads/main/rules/logging.rule.md \
+  .claude/rules
+
+bun scripts/fetch-to-folder.ts logging-test.rule.md \
+  https://raw.githubusercontent.com/pencroff-lab/kb/refs/heads/main/rules/logging-test.rule.md \
+  .claude/rules
 ```
 
-This is a one-time setup step — the file is committed to the repo and does not auto-update.
+These are one-time setup steps — the files are committed to the repo and do not auto-update.
 
 ---
 
