@@ -21,7 +21,9 @@ my-app/
 ├── tsconfig.json             # IDE / development config (noEmit)
 ├── biome.json                # Biome linter / formatter config
 ├── bunfig.toml               # Bun runtime config (test coverage, etc.)
+├── cliff.toml                # git-cliff changelog configuration
 ├── package.json
+├── CHANGELOG.md              # Auto-generated changelog (git-cliff)
 ├── .gitignore
 └── .github/workflows/ci.yml  # CI pipeline
 ```
@@ -63,20 +65,28 @@ Tests and benchmarks live alongside source but are excluded from the bundle.
     "lint": "bun run lint:edit && bun run lint:type",
     "prebuild": "rm -rf dist",
     "build": "bun build src/main.ts --outfile dist/app.js --target bun --minify",
-    "postbuild": "bun scripts/verify-build.ts"
+    "postbuild": "bun scripts/verify-build.ts",
+    "changelog": "git-cliff -o CHANGELOG.md",
+    "changelog:latest": "git-cliff --latest --strip header",
+    "bump_version": "git-cliff --bump -o CHANGELOG.md",
+    "bump_echo": "echo 'Update package.json to version' && git-cliff --bumped-version",
+    "release": "bun run test:coverage && bun run lint && bun run build && bun run bump_version && bun run bump_echo"
   },
 
   // ── Dependencies ──
   "dependencies": {
-    "@pencroff-lab/kore": "0.1.0"              // exact version
+    "@pencroff-lab/kore": "0.3.1",             // exact latest version
+    "lodash": "4.17.23"                        // exact latest version
   },
   "devDependencies": {
-    "@biomejs/biome": "2.4.2",                 // exact version
+    "@biomejs/biome": "2.4.2",                 // exact latest version
     "@types/bun": "1.3.9",                     // match your bun version (bun --version)
-    "@types/sinon": "21.0.0",                  // exact version
-    "mitata": "1.0.34",                        // exact version — benchmarking
-    "sinon": "21.0.1",                         // exact version — test stubs/spies
-    "typescript": "5.9.3"                      // exact version
+    "@types/lodash": "4.17.17",                // exact latest version
+    "@types/sinon": "21.0.0",                  // exact latest version
+    "git-cliff": "2.12.0",                     // exact latest version — changelog generation
+    "mitata": "1.0.34",                        // exact latest version — benchmarking
+    "sinon": "21.0.1",                         // exact latest version — test stubs/spies
+    "typescript": "5.9.3"                      // exact latest version
   }
 }
 ```
@@ -102,11 +112,16 @@ Tests and benchmarks live alongside source but are excluded from the bundle.
 | `"prelint:ci"` | Bun lifecycle hook — runs `lint:type` automatically before `lint:ci` |
 | `"lint"` | Combined local command: Biome auto-fix + TypeScript type check |
 | `"postbuild"` | Validates the bundled output exists |
+| `"changelog"` | Generates full `CHANGELOG.md` from git history via git-cliff |
+| `"changelog:latest"` | Outputs only the latest release changelog (for release notes) |
+| `"bump_version"` | Bumps changelog with next version via git-cliff |
+| `"bump_echo"` | Prints the next version to bump `package.json` to |
+| `"release"` | Full release pipeline: test → lint → build → bump version |
 
 ### Dependency version policy
 
 - **`@types/bun`** — should match the bun version used in the project. Run `bun --version` and pick the corresponding `@types/bun` release to keep type definitions in sync.
-- **All other devDependencies** — use exact versions (no `^` or `~`). This ensures deterministic installs and avoids surprise breakage from patch releases.
+- **All other dependencies** — use exact latest versions (no `^` or `~`). Check the latest version on npm before installing. This ensures deterministic installs and avoids surprise breakage from patch releases.
 - **`typescript`** — listed as a devDependency (not peerDependency) since the app is not consumed by other packages.
 
 ### Dev dependency roles
@@ -115,7 +130,9 @@ Tests and benchmarks live alongside source but are excluded from the bundle.
 |---|---|
 | `@biomejs/biome` | Linter and formatter (replaces ESLint + Prettier) |
 | `@types/bun` | TypeScript definitions for the Bun runtime |
+| `@types/lodash` | TypeScript definitions for Lodash |
 | `@types/sinon` | TypeScript definitions for Sinon |
+| `git-cliff` | Changelog generation from conventional commits |
 | `mitata` | Micro-benchmarking library for `*.bench.ts` files |
 | `sinon` | Test stubs, spies, and mocks |
 | `typescript` | TypeScript compiler (used for type-checking only) |
@@ -378,7 +395,79 @@ Add deployment steps (Docker push, SSH deploy, etc.) after the build step as nee
 
 ---
 
-## 9. Build Script (`scripts/`)
+## 9. git-cliff Setup
+
+git-cliff generates changelogs from conventional commits.
+
+### `cliff.toml`
+
+```toml
+[changelog]
+header = "# Changelog\n"
+body = """
+
+{% if version %}\
+## [{{ version | trim_start_matches(pat="v") }}] - {{ timestamp | date(format="%Y-%m-%d") }}
+{% else %}\
+## [Unreleased]
+{% endif %}\
+{% for group, commits in commits | group_by(attribute="group") %}
+### {{ group | upper_first }}
+{% for commit in commits | unique(attribute="message") %}
+- {{ commit.message | split(pat="\n") | first | upper_first }} ({{ commit.id | truncate(length=7, end="") }})\
+{% endfor %}
+{% endfor %}
+"""
+
+[git]
+conventional_commits = true
+filter_unconventional = false
+commit_parsers = [
+    { message = "^feat", group = "Features" },
+    { message = "^fix", group = "Bug Fixes" },
+    { message = "^doc", group = "Documentation" },
+    { message = "^perf", group = "Performance" },
+    { message = "^refactor", group = "Refactor" },
+    { message = "^chore", skip = true },
+    { message = "^ci", skip = true },
+    { message = "^\\.$", skip = true },
+    { message = "^$", skip = true },
+    { message = ".*", group = "Other" },
+]
+```
+
+### Usage
+
+| Command | Purpose |
+|---|---|
+| `bun run changelog` | Regenerate full `CHANGELOG.md` from entire git history |
+| `bun run changelog:latest` | Output only the latest release notes (useful for GitHub releases) |
+| `bun run bump_version` | Bump changelog with the next semver version |
+| `bun run bump_echo` | Print the next version — update `package.json` to match |
+
+The `release` script runs `bump_version` + `bump_echo` as part of the full pipeline.
+
+---
+
+## 10. Release Workflow
+
+### Release (local — prepares the next version)
+
+```bash
+# Run the full release pipeline:
+# test:coverage → lint → build → bump_version → bump_echo
+bun run release
+
+# The release script outputs the next version to set in package.json.
+# Update package.json version, commit, and push to main.
+```
+
+The `release` script runs tests, linting, build, and bumps the changelog — then
+tells you what version to set in `package.json`.
+
+---
+
+## 11. Build Script (`scripts/`)
 
 ### `scripts/verify-build.ts` — Post-build validation
 
@@ -414,46 +503,48 @@ console.log("Build verification passed.");
 
 ---
 
-## 10. Install Dependencies
+## 12. Install Dependencies
 
-Install the runtime dependency:
+Install the runtime dependencies:
 
 ```bash
-bun add -E @pencroff-lab/kore
+bun add -E @pencroff-lab/kore lodash
 ```
 
 Install all dev dependencies in one command:
 
 ```bash
-bun add -E -d @biomejs/biome @types/bun @types/sinon mitata sinon typescript
+bun add -E -d @biomejs/biome @types/bun @types/lodash @types/sinon git-cliff mitata sinon typescript
 ```
 
 Verify `@types/bun` matches your Bun version (`bun --version`) and update if needed.
 
 ---
 
-## 11. Checklist for New Application
+## 13. Checklist for New Application
 
 - [ ] Copy project structure (src/main.ts, tsconfig.json, biome.json, bunfig.toml)
 - [ ] Update package.json: name, description, author, keywords, repository
 - [ ] Ensure `"private": true` is set in package.json
-- [ ] Install dependencies (see [section 10](#10-install-dependencies))
+- [ ] Install dependencies (see [section 12](#12-install-dependencies))
 - [ ] Set up `biome.json` — run `bun run lint:edit` to verify
 - [ ] Set up `bunfig.toml` with test root and coverage threshold
+- [ ] Set up `cliff.toml` — configure changelog generation (see [section 9](#9-git-cliff-setup))
 - [ ] Copy `.github/workflows/ci.yml`
-- [ ] Create `scripts/fetch-to-folder.ts` (see [section 12](#12-fetch-to-folder-helper-script))
-- [ ] Copy Claude Code rules (see [section 13](#13-claude-code-rules--testing-guide) and [section 14](#14-claude-code-rules--logging-guide))
+- [ ] Create `scripts/fetch-to-folder.ts` (see [section 14](#14-fetch-to-folder-helper-script))
+- [ ] Copy Claude Code rules (see [section 15](#15-claude-code-rules--testing-guide) and [section 16](#16-claude-code-rules--logging-guide))
 - [ ] Create LICENSE file (e.g. Apache-2.0, MIT)
 - [ ] Create README.md with application description
 - [ ] Write application code in `src/`, tests in `src/*.test.ts`
 - [ ] Run `bun test`, `bun run test:coverage`, `bun run lint:ci`, and `bun run build` locally
 - [ ] Verify `bun run build` produces `dist/app.js` with no errors
 - [ ] Verify `bun run start` runs the application correctly
+- [ ] Run `bun run changelog` — verify changelog generates without errors
 - [ ] Push to `main` — CI runs lint, tests, and build
 
 ---
 
-## 12. Fetch-to-Folder Helper Script
+## 14. Fetch-to-Folder Helper Script
 
 Create `scripts/fetch-to-folder.ts` — a reusable helper that downloads a remote file into a local folder.
 
@@ -489,7 +580,7 @@ Review the script, then use it in the steps below.
 
 ---
 
-## 13. Claude Code Rules — Testing Guide
+## 15. Claude Code Rules — Testing Guide
 
 The testing guide lives at `.claude/rules/testing.rule.md` and is sourced from the shared knowledge base. To copy or update it, run:
 
@@ -501,7 +592,7 @@ bun scripts/fetch-to-folder.ts testing.rule.md \
 
 ---
 
-## 14. Claude Code Rules — Logging Guide
+## 16. Claude Code Rules — Logging Guide
 
 The logging rules live at `.claude/rules/logging.rule.md` and `.claude/rules/logging-test.rule.md`, sourced from the shared knowledge base. To copy or update them, run:
 
@@ -556,4 +647,5 @@ These are one-time setup steps — the files are committed to the repo and do no
 | `"exports"` field | Yes (conditional imports) | Not needed |
 | `"sideEffects"` | `false` (tree-shaking hint) | Not needed |
 | `"files"` | `["dist"]` (tarball allowlist) | Not needed |
-| Build scripts | fix-cjs, verify-build, check-version | verify-build only |
+| Changelog | git-cliff | git-cliff |
+| Build scripts | fix-cjs, verify-build, check-version, check-docs, fix-docs-links | verify-build only |
