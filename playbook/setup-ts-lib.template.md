@@ -18,7 +18,12 @@ my-library/
 │   ├── fix-cjs.ts            # Writes CJS package.json for Node compat
 │   ├── verify-build.ts       # Post-build artifact validation
 │   ├── check-version.ts      # Pre-publish npm version duplicate check
+│   ├── check-docs.ts         # Doc budget enforcement (JSDoc ratio checks)
+│   ├── fix-docs-links.ts     # Fixes TypeDoc _media/ links to relative paths
 │   └── fetch-to-folder.ts    # Fetch remote file to a local folder
+├── docs/                     # Documentation (published to npm)
+│   ├── api/                  # TypeDoc-generated API docs (markdown)
+│   └── guides/               # Hand-written guides
 ├── dist/                     # Build output (git-ignored, npm-published)
 │   ├── esm/                  # ES modules build
 │   └── cjs/                  # CommonJS build
@@ -29,7 +34,11 @@ my-library/
 ├── tsconfig.cjs.json         # CJS-specific build
 ├── biome.json                # Biome linter / formatter config
 ├── bunfig.toml               # Bun runtime config (test coverage, etc.)
+├── typedoc.json              # TypeDoc configuration (markdown output)
+├── cliff.toml                # git-cliff changelog configuration
 ├── package.json
+├── CHANGELOG.md              # Auto-generated changelog (git-cliff)
+├── llms.txt                  # LLM-friendly package summary
 ├── .npmrc
 ├── .gitignore
 └── .github/workflows/ci.yml  # CI + auto-publish
@@ -76,7 +85,7 @@ Tests, benchmarks, and specs live alongside source but are excluded from builds.
   "sideEffects": false,
 
   // ── What goes into the tarball ──
-  "files": ["dist"],
+  "files": ["dist", "docs", "llms.txt", "CHANGELOG.md"],
 
   // ── Scripts ──
   "scripts": {
@@ -86,23 +95,34 @@ Tests, benchmarks, and specs live alongside source but are excluded from builds.
     "lint:type": "tsc --noEmit",
     "prelint:ci": "bun run lint:type",
     "lint:ci": "bunx biome ci src/",
-    "lint": "bun run lint:edit && bun run lint:type",
+    "check:docs": "bun scripts/check-docs.ts",
+    "lint": "bun run lint:edit && bun run lint:type && bun run check:docs",
     "prebuild": "rm -rf dist",
     "build": "bun run build:esm && bun run build:cjs",
     "build:esm": "tsc --project tsconfig.esm.json",
     "build:cjs": "tsc --project tsconfig.cjs.json && bun scripts/fix-cjs.ts",
     "postbuild": "bun scripts/verify-build.ts",
+    "pregen_docs": "rm -rf docs/api/_media",
+    "gen_docs": "typedoc && bun scripts/fix-docs-links.ts",
+    "changelog": "git-cliff -o CHANGELOG.md",
+    "changelog:latest": "git-cliff --latest --strip header",
+    "bump_version": "git-cliff --bump -o CHANGELOG.md",
+    "bump_echo": "echo 'Update package.json to version' && git-cliff --bumped-version",
+    "release": "bun run test:coverage && bun run lint && bun run build && bun run gen_docs && bun run bump_version && bun run bump_echo",
     "prepublish_pkg": "bun scripts/check-version.ts && bun run build",
     "publish_pkg": "bun publish --access public"
   },
 
   // ── Dependencies ──
   "devDependencies": {
-    "@biomejs/biome": "2.4.2",              // exact version
+    "@biomejs/biome": "2.4.2",              // exact latest version
     "@types/bun": "1.3.9",                  // match your bun version (bun --version)
-    "@types/sinon": "21.0.0",               // exact version
-    "mitata": "1.0.34",                     // exact version — benchmarking
-    "sinon": "21.0.1"                       // exact version — test stubs/spies
+    "@types/sinon": "21.0.0",               // exact latest version
+    "git-cliff": "2.12.0",                  // exact latest version — changelog generation
+    "mitata": "1.0.34",                     // exact latest version — benchmarking
+    "sinon": "21.0.1",                      // exact latest version — test stubs/spies
+    "typedoc": "0.28.17",                   // exact latest version — API doc generation
+    "typedoc-plugin-markdown": "4.10.0"     // exact latest version — markdown output
   },
   "peerDependencies": {
     "typescript": "5.9.3"
@@ -128,18 +148,26 @@ Tests, benchmarks, and specs live alongside source but are excluded from builds.
 | `"types"` | TypeScript declaration entry |
 | `"exports"` | Modern conditional exports — Node resolves `import`/`require` automatically |
 | `"sideEffects": false` | Tells bundlers all modules are safe to tree-shake when unused |
-| `"files": ["dist"]` | Only the `dist/` folder is published to npm (no src, tests, tmp) |
+| `"files": [...]` | Published to npm: build output, generated docs, changelog, and LLM summary |
 | `"lint:type"` | Runs `tsc --noEmit` to type-check without emitting files |
 | `"prelint:ci"` | Bun lifecycle hook — runs `lint:type` automatically before `lint:ci` |
-| `"lint"` | Combined local command: Biome auto-fix + TypeScript type check |
+| `"check:docs"` | Checks JSDoc doc budget ratios — fails if over budget |
+| `"lint"` | Combined local command: Biome auto-fix + TypeScript type check + doc budget |
 | `"build:cjs"` | CJS compile + writes `dist/cjs/package.json` with `"type": "commonjs"` for Node compat |
 | `"postbuild"` | Validates required build artifacts exist; warns if LICENSE or README.md is missing |
+| `"gen_docs"` | Generates TypeDoc API docs + fixes `_media/` links to relative `src/` paths |
+| `"pregen_docs"` | Cleans `_media/` directory before doc generation |
+| `"changelog"` | Generates full `CHANGELOG.md` from git history via git-cliff |
+| `"changelog:latest"` | Outputs only the latest release changelog (for release notes) |
+| `"bump_version"` | Bumps changelog with next version via git-cliff |
+| `"bump_echo"` | Prints the next version to bump `package.json` to |
+| `"release"` | Full release pipeline: test → lint → build → gen docs → bump version |
 | `"prepublish_pkg"` | Checks npm registry for version duplicate, then runs full build |
 
 ### Dependency version policy
 
 - **`@types/bun`** — should match the bun version used in the project. Run `bun --version` and pick the corresponding `@types/bun` release to keep type definitions in sync.
-- **All other devDependencies** — use exact versions (no `^` or `~`). This ensures deterministic installs and avoids surprise breakage from patch releases.
+- **All other devDependencies** — use exact latest versions (no `^` or `~`). Check the latest version on npm before installing. This ensures deterministic installs and avoids surprise breakage from patch releases.
 
 ### Dev dependency roles
 
@@ -148,8 +176,11 @@ Tests, benchmarks, and specs live alongside source but are excluded from builds.
 | `@biomejs/biome` | Linter and formatter (replaces ESLint + Prettier) |
 | `@types/bun` | TypeScript definitions for the Bun runtime |
 | `@types/sinon` | TypeScript definitions for Sinon |
+| `git-cliff` | Changelog generation from conventional commits |
 | `mitata` | Micro-benchmarking library for `*.bench.ts` files |
 | `sinon` | Test stubs, spies, and mocks |
+| `typedoc` | API documentation generation from JSDoc/TSDoc |
+| `typedoc-plugin-markdown` | TypeDoc output as markdown files (instead of HTML) |
 
 ---
 
@@ -432,12 +463,16 @@ The `prelint:ci` hook ensures TypeScript type errors also fail the CI lint step.
 [test]
 root = "src"
 coverageThreshold = 0.83
+
+[test.reporter]
+dots = true
 ```
 
 | Key | Purpose |
 |---|---|
 | `root` | Tells `bun test` to discover tests starting from `src/` |
 | `coverageThreshold` | Minimum coverage ratio (0.0–1.0). `bun test --coverage` fails if below this |
+| `dots` | Uses dots reporter for compact test output (one dot per test) |
 
 ### Script
 
@@ -478,6 +513,9 @@ jobs:
 
       - name: Lint
         run: bun run lint:ci
+
+      - name: Check docs
+        run: bun run check:docs
 
       - name: Run tests
         run: bun run test:coverage
@@ -540,29 +578,40 @@ Push to main → lint → test + coverage → publish to npm → tag git commit
 
 ---
 
-## 10. Publish Workflow (Manual)
+## 10. Release & Publish Workflow
+
+### Release (local — prepares the next version)
 
 ```bash
-# 1. Bump version
-# Edit package.json version manually or use `npm version patch|minor|major`
+# Run the full release pipeline:
+# test:coverage → lint → build → gen_docs → bump_version → bump_echo
+bun run release
 
-# 2. Check version is not already published
+# The release script outputs the next version to set in package.json.
+# Update package.json version, commit, and push to main.
+```
+
+The `release` script runs tests, linting, build, regenerates API docs,
+and bumps the changelog — then tells you what version to set in `package.json`.
+
+### Publish (CI — automatic on push to main)
+
+```bash
+# Manual publish (if needed):
+# 1. Check version is not already published
 bun scripts/check-version.ts
 
-# 3. Build (includes CJS fix and post-build verification)
+# 2. Build (includes CJS fix and post-build verification)
 bun run build
 
-# 4. Verify dist contents
-ls dist/esm/ dist/cjs/
-
-# 5. Dry run
+# 3. Dry run
 bun publish --access public --dry-run
 
-# 6. Publish
+# 4. Publish
 bun run publish_pkg
 ```
 
-The CI pipeline automates steps 2-6 on every push to `main`.
+The CI pipeline automates publish + tagging on every push to `main`.
 `prepublish_pkg` runs the version check and build automatically before `publish_pkg`.
 
 ---
@@ -671,6 +720,29 @@ if (hasErrors) {
 console.log("Build verification passed.");
 ```
 
+### `scripts/check-docs.sh.ts` — Doc budget enforcement
+
+Scans `src/**/*.ts` files (excluding tests and barrel indexes) and enforces JSDoc
+documentation budget ratios. Tiered by file size (threshold: 100 non-blank lines).
+The first `@module` JSDoc block is excluded from the ratio.
+
+| File type | Small (< 100 lines) | Normal (≥ 100 lines) |
+|-----------|---------------------|----------------------|
+| `*.types.ts` | ≤ 80% | ≤ 50% |
+| Implementation `*.ts` | ≤ 50% | ≤ 35% |
+
+Additional rules enforced:
+- **`*.types.ts`**: no file-level JSDoc (TypeDoc won't render it), `@example` blocks max 5 lines
+- **Implementation `*.ts`**: no `@example` blocks (use `*.examples.test.ts` + `@see` link)
+
+Runs as part of `bun run check:docs` and `bun run lint`. Exits with code 1 on errors.
+
+### `scripts/fix-docs-links.sh.ts` — TypeDoc link fixer
+
+After TypeDoc generates docs, it copies `@see` file references into a `_media/`
+directory. This script replaces those `_media/` links with relative paths back to
+`src/` and removes the `_media/` directory. Runs automatically as part of `gen_docs`.
+
 ### `scripts/check-version.sh.ts` — Pre-publish version check
 
 Queries the npm registry to verify the current version is not already published.
@@ -720,21 +792,26 @@ try {
 
 - [ ] Copy project structure (index.ts, src/, 4 tsconfigs, biome.json, bunfig.toml)
 - [ ] Update package.json: name, description, author, keywords, repository, `"sideEffects": false`
-- [ ] Install devDependencies — verify `@types/bun` matches your `bun --version`
+- [ ] Install devDependencies (exact latest versions) — verify `@types/bun` matches your `bun --version`
 - [ ] Set up `biome.json` — run `bun run lint:edit` to verify
-- [ ] Set up `bunfig.toml` with test root and coverage threshold
+- [ ] Set up `bunfig.toml` with test root, coverage threshold, and dots reporter
 - [ ] Set up `.npmrc` with your scope
+- [ ] Set up `typedoc.json` — configure entry points and output (see [section 17](#17-typedoc-setup))
+- [ ] Set up `cliff.toml` — configure changelog generation (see [section 18](#18-git-cliff-setup))
 - [ ] Create npm automation token, add as `NPM_TOKEN` secret
 - [ ] Create GitHub PAT for tagging, add as `REPO_TAG_TOKEN` secret
 - [ ] Copy `.github/workflows/ci.yml`, update package name in verify step
 - [ ] Create `scripts/fetch-to-folder.ts` (see [section 14](#14-fetch-to-folder-helper-script))
+- [ ] Create `scripts/check-docs.ts` and `scripts/fix-docs-links.ts` (see [section 12](#12-build-scripts-scripts))
 - [ ] Copy testing rules (see [section 15](#15-claude-code-rules--testing-guide))
 - [ ] _(Optional)_ If logging is needed — install `@pencroff-lab/kore` and copy logging rules (see [section 16](#16-claude-code-rules--logging-guide-optional))
 - [ ] Create LICENSE file (e.g. Apache-2.0, MIT) — **must exist before publish**
 - [ ] Create README.md with package description and usage examples
+- [ ] Create `llms.txt` with LLM-friendly package summary
 - [ ] Write library code in `src/`, tests in `src/*.test.ts`
 - [ ] Run `bun test`, `bun run test:coverage`, `bun run lint:ci`, and `bun run build` locally
 - [ ] Verify `bun run build` shows no errors and no missing-file warnings
+- [ ] Run `bun run gen_docs` — verify docs generate without errors
 - [ ] Run `bun scripts/check-version.ts` — verify version is available on npm
 - [ ] Push to `main` — CI handles publish + tagging
 - [ ] Verify on npmjs.com: `https://www.npmjs.com/package/@scope/name`
@@ -815,6 +892,111 @@ These are one-time setup steps — the files are committed to the repo and do no
 
 ---
 
+## 17. TypeDoc Setup
+
+TypeDoc generates API documentation as markdown files from JSDoc/TSDoc comments.
+
+### `typedoc.json`
+
+```jsonc
+{
+  "$schema": "https://typedoc.org/schema.json",
+  "plugin": ["typedoc-plugin-markdown"],
+  "entryPoints": [
+    "./src/types/core.ts"                   // ← list your module entry points
+  ],
+  "out": "docs/api",
+  "tsconfig": "tsconfig.json",
+  "basePath": "./src",
+  "name": "<@scope/package-name>",          // ← your package name
+  "readme": "none",
+  "outputFileStrategy": "modules",
+  "flattenOutputFiles": false,
+  "entryFileName": "README.md",
+  "hidePageHeader": false,
+  "hideBreadcrumbs": false,
+  "excludePrivate": true,
+  "excludeInternal": true,
+  "sourceLinkTemplate": "../../src/{path}#L{line}",
+  "disableGit": true
+}
+```
+
+### Key settings
+
+| Setting | Purpose |
+|---|---|
+| `plugin: ["typedoc-plugin-markdown"]` | Output markdown instead of HTML |
+| `entryPoints` | List each module's implementation file (not `*.types.ts`) — TypeDoc only renders `@module` from entry points |
+| `out: "docs/api"` | Output directory for generated docs |
+| `sourceLinkTemplate` | Relative paths from `docs/api/` back to `src/` — avoids hardcoded GitHub commit URLs |
+| `disableGit: true` | Required for `sourceLinkTemplate` to use relative paths |
+| `excludePrivate` / `excludeInternal` | Keeps internal implementation details out of published docs |
+
+### Doc generation pipeline
+
+```
+pregen_docs (clean _media/) → typedoc (generate) → fix-docs-links.sh.ts (fix _media/ links)
+```
+
+Run with `bun run gen_docs`. The `pregen_docs` script runs automatically before `gen_docs`.
+
+---
+
+## 18. git-cliff Setup
+
+git-cliff generates changelogs from conventional commits.
+
+### `cliff.toml`
+
+```toml
+[changelog]
+header = "# Changelog\n"
+body = """
+
+{% if version %}\
+## [{{ version | trim_start_matches(pat="v") }}] - {{ timestamp | date(format="%Y-%m-%d") }}
+{% else %}\
+## [Unreleased]
+{% endif %}\
+{% for group, commits in commits | group_by(attribute="group") %}
+### {{ group | upper_first }}
+{% for commit in commits | unique(attribute="message") %}
+- {{ commit.message | split(pat="\n") | first | upper_first }} ({{ commit.id | truncate(length=7, end="") }})\
+{% endfor %}
+{% endfor %}
+"""
+
+[git]
+conventional_commits = true
+filter_unconventional = false
+commit_parsers = [
+    { message = "^feat", group = "Features" },
+    { message = "^fix", group = "Bug Fixes" },
+    { message = "^doc", group = "Documentation" },
+    { message = "^perf", group = "Performance" },
+    { message = "^refactor", group = "Refactor" },
+    { message = "^chore", skip = true },
+    { message = "^ci", skip = true },
+    { message = "^\\.$", skip = true },
+    { message = "^$", skip = true },
+    { message = ".*", group = "Other" },
+]
+```
+
+### Usage
+
+| Command | Purpose |
+|---|---|
+| `bun run changelog` | Regenerate full `CHANGELOG.md` from entire git history |
+| `bun run changelog:latest` | Output only the latest release notes (useful for GitHub releases) |
+| `bun run bump_version` | Bump changelog with the next semver version |
+| `bun run bump_echo` | Print the next version — update `package.json` to match |
+
+The `release` script runs `bump_version` + `bump_echo` as part of the full pipeline.
+
+---
+
 ## Appendix: Design Decisions
 
 ### Why Bun?
@@ -837,6 +1019,7 @@ These are one-time setup steps — the files are committed to the repo and do no
 - With it, entire unreferenced modules are dropped — not just unused exports
 - Only safe when modules have no top-level side effects (our case: only `const` + `function` exports)
 
-### Why `"files": ["dist"]` instead of `.npmignore`?
+### Why `"files": [...]` instead of `.npmignore`?
 - Allowlist is safer than denylist — only published files are explicitly listed
-- Prevents accidental inclusion of tests, docs, IDE configs, secrets
+- Prevents accidental inclusion of tests, IDE configs, secrets
+- Includes `dist`, `docs`, `llms.txt`, and `CHANGELOG.md` — consumers get build output, documentation, and changelog in the package
